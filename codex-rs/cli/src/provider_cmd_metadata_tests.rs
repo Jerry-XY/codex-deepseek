@@ -2,6 +2,44 @@ use super::*;
 use pretty_assertions::assert_eq;
 
 #[test]
+fn image_guidance_survives_round_trip_without_accumulating_on_regeneration() {
+    let guidance = "Call view_image directly; use exec to discover deferred tools.";
+    let mut model = default_model("gateway-flash".into(), "gateway-flash".into());
+    model.instructions_suffix = Some(guidance.into());
+    let loaded: ManagedModel = toml::from_str(&toml::to_string(&model).unwrap()).unwrap();
+    let first = build_model_info(&loaded).unwrap();
+    let regenerated = build_model_info(&loaded).unwrap();
+    assert_eq!(first, regenerated);
+    let wire = serde_json::to_value(ModelsResponse {
+        models: vec![first.clone()],
+    })
+    .unwrap();
+    assert!(
+        wire["models"][0]["base_instructions"]
+            .as_str()
+            .unwrap()
+            .ends_with(guidance)
+    );
+    assert!(
+        first
+            .model_messages
+            .unwrap()
+            .instructions_template
+            .unwrap()
+            .ends_with(guidance)
+    );
+}
+
+#[test]
+fn instructions_suffix_is_bounded_in_utf8_bytes() {
+    let mut model = default_model("gateway-flash".into(), "gateway-flash".into());
+    model.instructions_suffix = Some("图".repeat(342));
+    assert!(build_model_info(&model).is_err());
+    model.instructions_suffix = Some("图".repeat(341));
+    assert!(build_model_info(&model).is_ok());
+}
+
+#[test]
 fn configured_v1_survives_registry_serialization_and_model_edits() {
     let model = model_from_args(
         "gateway-flash".into(),

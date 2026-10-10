@@ -205,6 +205,9 @@ struct ModelOptions {
     /// Native subagent runtime for new threads; existing threads retain their version.
     #[arg(long, value_parser = ["v1", "v2"])]
     multi_agent_version: Option<String>,
+    /// Endpoint-specific model guidance, limited to 1024 UTF-8 bytes.
+    #[arg(long)]
+    instructions_suffix: Option<String>,
 }
 
 #[derive(Debug, Parser)]
@@ -291,6 +294,8 @@ struct ManagedModel {
     supports_search_tool: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     multi_agent_version: Option<MultiAgentVersion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    instructions_suffix: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -709,6 +714,7 @@ fn deepseek_provider() -> anyhow::Result<ManagedProvider> {
             tool_mode: None,
             supports_search_tool: None,
             multi_agent_version: None,
+            instructions_suffix: None,
         })
         .collect();
     Ok(ManagedProvider {
@@ -865,6 +871,26 @@ fn build_model_info(model: &ManagedModel) -> anyhow::Result<ModelInfo> {
         .map(str::parse::<ReasoningEffort>)
         .transpose()
         .map_err(anyhow::Error::msg)?;
+    if let Some(suffix) = &model.instructions_suffix {
+        if suffix.len() > 1024 {
+            anyhow::bail!(
+                "model `{}` instructions suffix exceeds 1024 UTF-8 bytes",
+                model.id
+            );
+        }
+        let suffix = suffix.trim();
+        if !suffix.is_empty() {
+            let instructions = info
+                .model_messages
+                .get_or_insert_default()
+                .instructions_template
+                .get_or_insert_with(|| {
+                    codex_models_manager::model_info::BASE_INSTRUCTIONS.to_string()
+                });
+            instructions.push_str("\n\n");
+            instructions.push_str(suffix);
+        }
+    }
     Ok(info)
 }
 
@@ -971,6 +997,7 @@ fn model_from_args(
             .map(|version| serde_json::from_value(serde_json::Value::String(version)))
             .transpose()?
             .or(fallback.multi_agent_version),
+        instructions_suffix: options.instructions_suffix.or(fallback.instructions_suffix),
     })
 }
 
@@ -988,6 +1015,7 @@ fn default_model(id: String, api_model: String) -> ManagedModel {
         tool_mode: None,
         supports_search_tool: None,
         multi_agent_version: None,
+        instructions_suffix: None,
     }
 }
 
