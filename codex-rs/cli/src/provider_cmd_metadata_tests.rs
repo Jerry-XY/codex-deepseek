@@ -1,6 +1,33 @@
 use super::*;
 use pretty_assertions::assert_eq;
 
+#[test]
+fn configured_v1_survives_registry_serialization_and_model_edits() {
+    let model = model_from_args(
+        "gateway-flash".into(),
+        /*api_model*/ None,
+        ModelOptions {
+            multi_agent_version: Some("v1".into()),
+            ..Default::default()
+        },
+        /*existing*/ None,
+    )
+    .unwrap();
+    let serialized = toml::to_string(&model).unwrap();
+    let loaded: ManagedModel = toml::from_str(&serialized).unwrap();
+    let edited = model_from_args(
+        "gateway-flash".into(),
+        /*api_model*/ None,
+        ModelOptions::default(),
+        Some(loaded),
+    )
+    .unwrap();
+    assert_eq!(
+        build_model_info(&edited).unwrap().multi_agent_version,
+        Some(MultiAgentVersion::V1)
+    );
+}
+
 #[tokio::test]
 async fn apply_preserves_explicit_tool_capabilities_after_registry_round_trip() {
     let home = tempfile::tempdir().unwrap();

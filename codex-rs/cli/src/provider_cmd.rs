@@ -202,6 +202,9 @@ struct ModelOptions {
     /// Defer connector definitions through tool discovery instead of inlining them.
     #[arg(long)]
     supports_search_tool: Option<bool>,
+    /// Native subagent runtime for new threads; existing threads retain their version.
+    #[arg(long, value_parser = ["v1", "v2"])]
+    multi_agent_version: Option<String>,
 }
 
 #[derive(Debug, Parser)]
@@ -286,6 +289,8 @@ struct ManagedModel {
     tool_mode: Option<ToolMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     supports_search_tool: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    multi_agent_version: Option<MultiAgentVersion>,
 }
 
 #[derive(Debug, Serialize)]
@@ -703,6 +708,7 @@ fn deepseek_provider() -> anyhow::Result<ManagedProvider> {
             template: Some(model.slug),
             tool_mode: None,
             supports_search_tool: None,
+            multi_agent_version: None,
         })
         .collect();
     Ok(ManagedProvider {
@@ -831,7 +837,7 @@ fn build_model_info(model: &ManagedModel) -> anyhow::Result<ModelInfo> {
     info.display_name.clone_from(&model.display_name);
     info.description = (!model.description.is_empty()).then(|| model.description.clone());
     info.visibility = ModelVisibility::List;
-    info.multi_agent_version = Some(MultiAgentVersion::V2);
+    info.multi_agent_version = model.multi_agent_version.or(Some(MultiAgentVersion::V2));
     info.tool_mode = model.tool_mode.or(info.tool_mode);
     info.supports_search_tool = model
         .supports_search_tool
@@ -960,6 +966,11 @@ fn model_from_args(
         supports_search_tool: options
             .supports_search_tool
             .or(fallback.supports_search_tool),
+        multi_agent_version: options
+            .multi_agent_version
+            .map(|version| serde_json::from_value(serde_json::Value::String(version)))
+            .transpose()?
+            .or(fallback.multi_agent_version),
     })
 }
 
@@ -976,6 +987,7 @@ fn default_model(id: String, api_model: String) -> ManagedModel {
         template: None,
         tool_mode: None,
         supports_search_tool: None,
+        multi_agent_version: None,
     }
 }
 
