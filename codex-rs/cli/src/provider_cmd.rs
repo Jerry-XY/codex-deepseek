@@ -12,6 +12,7 @@ use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::openai_models::ReasoningEffortPreset;
+use codex_protocol::openai_models::ToolMode;
 use codex_protocol::protocol::MultiAgentVersion;
 use codex_utils_path::write_atomically;
 use crossterm::event::Event;
@@ -195,6 +196,12 @@ struct ModelOptions {
     context_window: Option<i64>,
     #[arg(long)]
     supports_images: Option<bool>,
+    /// Tool transport supported by this endpoint. Omit to retain template defaults.
+    #[arg(long, value_parser = ["direct", "code_mode", "code_mode_only"])]
+    tool_mode: Option<String>,
+    /// Defer connector definitions through tool discovery instead of inlining them.
+    #[arg(long)]
+    supports_search_tool: Option<bool>,
 }
 
 #[derive(Debug, Parser)]
@@ -275,6 +282,10 @@ struct ManagedModel {
     supports_images: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tool_mode: Option<ToolMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    supports_search_tool: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -690,6 +701,8 @@ fn deepseek_provider() -> anyhow::Result<ManagedProvider> {
             context_window: model.context_window,
             supports_images: model.input_modalities.contains(&InputModality::Image),
             template: Some(model.slug),
+            tool_mode: None,
+            supports_search_tool: None,
         })
         .collect();
     Ok(ManagedProvider {
@@ -819,6 +832,10 @@ fn build_model_info(model: &ManagedModel) -> anyhow::Result<ModelInfo> {
     info.description = (!model.description.is_empty()).then(|| model.description.clone());
     info.visibility = ModelVisibility::List;
     info.multi_agent_version = Some(MultiAgentVersion::V2);
+    info.tool_mode = model.tool_mode.or(info.tool_mode);
+    info.supports_search_tool = model
+        .supports_search_tool
+        .unwrap_or(info.supports_search_tool);
     info.context_window = model.context_window.or(info.context_window);
     info.max_context_window = info.context_window;
     info.input_modalities = if model.supports_images {
@@ -935,6 +952,14 @@ fn model_from_args(
         context_window: options.context_window.or(fallback.context_window),
         supports_images: options.supports_images.unwrap_or(fallback.supports_images),
         template: fallback.template,
+        tool_mode: options
+            .tool_mode
+            .map(|mode| serde_json::from_value(serde_json::Value::String(mode)))
+            .transpose()?
+            .or(fallback.tool_mode),
+        supports_search_tool: options
+            .supports_search_tool
+            .or(fallback.supports_search_tool),
     })
 }
 
@@ -949,6 +974,8 @@ fn default_model(id: String, api_model: String) -> ManagedModel {
         context_window: Some(128_000),
         supports_images: false,
         template: None,
+        tool_mode: None,
+        supports_search_tool: None,
     }
 }
 
@@ -1220,6 +1247,10 @@ fn ensure_parent(path: &Path) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "provider_cmd_metadata_tests.rs"]
+mod metadata_tests;
 
 #[cfg(test)]
 mod tests {
