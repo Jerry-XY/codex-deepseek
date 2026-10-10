@@ -377,11 +377,14 @@ impl MessageProcessor {
                 None => manager,
             }
         });
-        let model_catalog = Arc::new(crate::model_catalog::ModelCatalog::new(
-            config_manager.clone(),
-            Arc::clone(&config),
-            thread_manager.get_models_manager(),
-        ));
+        let model_catalog = Arc::new(
+            crate::model_catalog::ModelCatalog::new(
+                config_manager.clone(),
+                Arc::clone(&config),
+                thread_manager.get_models_manager(),
+            )
+            .with_first_party_auth(Arc::clone(&auth_manager)),
+        );
         let models_refresh_worker = crate::models_refresh_worker::spawn(&model_catalog);
         let turn_cost_worker =
             TurnCostWorker::spawn(Arc::clone(&config), Arc::clone(&auth_manager));

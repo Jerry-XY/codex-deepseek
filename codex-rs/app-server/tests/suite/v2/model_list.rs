@@ -260,8 +260,12 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
     Ok(())
 }
 
+#[test_case(false; "first party default")]
+#[test_case(true; "external default")]
 #[tokio::test]
-async fn list_models_includes_configured_external_provider_models() -> Result<()> {
+async fn list_models_includes_configured_external_provider_models(
+    external_default: bool,
+) -> Result<()> {
     let codex_home = TempDir::new()?;
     write_models_cache(codex_home.path()).await?;
     let catalog_dir = codex_home.path().join("model-catalogs");
@@ -286,14 +290,21 @@ async fn list_models_includes_configured_external_provider_models() -> Result<()
             }
         }"#,
     )?;
+    let default_config = if external_default {
+        "model = \"qwen-max\"\nmodel_provider = \"qwen\"\n"
+    } else {
+        ""
+    };
     std::fs::write(
         codex_home.path().join("config.toml"),
-        r#"[model_providers.qwen]
+        format!(
+            r#"{default_config}[model_providers.qwen]
 name = "Qwen"
 base_url = "https://example.com/compatible-mode/v1"
 env_key = "QWEN_API_KEY"
 wire_api = "responses"
-"#,
+"#
+        ),
     )?;
 
     let mut mcp = TestAppServer::builder()
@@ -320,6 +331,13 @@ wire_api = "responses"
     assert_eq!(external.id, "qwen-max");
     assert_eq!(external.display_name, "Qwen 3.8 Max [Qwen]");
     assert!(!external.supported_reasoning_efforts.is_empty());
+    assert_eq!(external.is_default, external_default);
+    assert!(
+        response
+            .data
+            .iter()
+            .any(|model| model.model.starts_with("gpt-"))
+    );
     Ok(())
 }
 
